@@ -174,102 +174,90 @@ function FamilyTreeSVG({ persons, relationships, onPersonClick }) {
   const lines = [];
   const drawn = new Set();
 
-  persons.forEach((p) => {
+ const processedCouples = new Set();
+  const processedChildren = new Set();
+
+  persons.forEach(p => {
     const pos = positions[p.id];
     if (!pos) return;
     const person = map[p.id];
 
-    // Draw couple bracket
-    person.spouseIds.forEach((spouseId) => {
+    // Draw couple line (once per couple)
+    person.spouseIds.forEach(spouseId => {
       const spousePos = positions[spouseId];
       if (!spousePos) return;
-      const key = [p.id, spouseId].sort().join("-");
-      if (!drawn.has(key)) {
-        drawn.add(key);
-        const x1 = pos.x + NODE_W;
-        const x2 = spousePos.x;
-        const y = pos.y + NODE_H / 2;
-        lines.push(
-          <line
-            key={`couple-${key}`}
-            x1={x1}
-            y1={y}
-            x2={x2}
-            y2={y}
-            stroke="#e74c3c"
-            strokeWidth={2}
-            strokeDasharray="6,3"
-          />,
-        );
-      }
+      const key = [p.id, spouseId].sort().join('-');
+      if (processedCouples.has(key)) return;
+      processedCouples.add(key);
+
+      const x1 = pos.x + NODE_W;
+      const x2 = spousePos.x;
+      const y = pos.y + NODE_H / 2;
+      lines.push(
+        <line key={`couple-${key}`} x1={x1} y1={y} x2={x2} y2={y}
+          stroke="#e74c3c" strokeWidth={2} strokeDasharray="6,3" />
+      );
     });
 
-    // Draw parent-child lines
-    const allChildren = [
-      ...person.childIds,
-      ...person.spouseIds.flatMap((sId) => map[sId]?.childIds || []),
-    ].filter((v, i, a) => a.indexOf(v) === i);
+    // Draw parent->child lines only once per child
+    person.childIds.forEach(childId => {
+      if (processedChildren.has(childId)) return;
+      processedChildren.add(childId);
 
-    if (allChildren.length > 0) {
-      const spouseId = person.spouseIds[0];
-      const spousePos = spouseId ? positions[spouseId] : null;
+      const childPos = positions[childId];
+      if (!childPos) return;
 
-      // Mid point between person and spouse (or just person center)
-      const parentMidX = spousePos
-        ? (pos.x + NODE_W / 2 + spousePos.x + NODE_W / 2) / 2
-        : pos.x + NODE_W / 2;
-      const parentBottomY = pos.y + NODE_H;
+      const child = map[childId];
+      // Find all parents of this child
+      const parentPositions = child.parentIds
+        .map(pId => positions[pId])
+        .filter(Boolean);
+
+      if (parentPositions.length === 0) return;
+
+      // Mid X between all parents
+      const parentMidX = parentPositions.reduce((sum, p) => sum + p.x + NODE_W / 2, 0) / parentPositions.length;
+      const parentBottomY = parentPositions[0].y + NODE_H;
       const midY = parentBottomY + V_GAP / 2;
 
-      // Vertical line down from parent mid
-      lines.push(
-        <line
-          key={`pv-${p.id}`}
-          x1={parentMidX}
-          y1={parentBottomY}
-          x2={parentMidX}
-          y2={midY}
-          stroke="#95a5a6"
-          strokeWidth={2}
-        />,
+      // Get all siblings (children with same parents)
+      const siblings = persons.filter(s =>
+        map[s.id].parentIds.some(pId => child.parentIds.includes(pId))
       );
 
-      if (allChildren.length > 1) {
-        const childXs = allChildren
-          .map((cId) => positions[cId]?.x + NODE_W / 2)
-          .filter(Boolean);
-        const hLeft = Math.min(...childXs);
-        const hRight = Math.max(...childXs);
+      if (!positions[siblings[0]?.id]) return;
+
+      // Draw vertical from parent mid down
+      lines.push(
+        <line key={`pv-${childId}`}
+          x1={parentMidX} y1={parentBottomY}
+          x2={parentMidX} y2={midY}
+          stroke="#95a5a6" strokeWidth={2} />
+      );
+
+      // Draw horizontal across siblings
+      if (siblings.length > 1) {
+        const sibXs = siblings.map(s => positions[s.id]?.x + NODE_W / 2).filter(Boolean);
         lines.push(
-          <line
-            key={`ph-${p.id}`}
-            x1={hLeft}
-            y1={midY}
-            x2={hRight}
-            y2={midY}
-            stroke="#95a5a6"
-            strokeWidth={2}
-          />,
+          <line key={`ph-${childId}`}
+            x1={Math.min(...sibXs)} y1={midY}
+            x2={Math.max(...sibXs)} y2={midY}
+            stroke="#95a5a6" strokeWidth={2} />
         );
       }
 
-      allChildren.forEach((cId) => {
-        const childPos = positions[cId];
-        if (!childPos) return;
-        const childTopX = childPos.x + NODE_W / 2;
+      // Draw vertical down to each child
+      siblings.forEach(s => {
+        const sPos = positions[s.id];
+        if (!sPos) return;
         lines.push(
-          <line
-            key={`cv-${p.id}-${cId}`}
-            x1={childTopX}
-            y1={midY}
-            x2={childTopX}
-            y2={childPos.y}
-            stroke="#95a5a6"
-            strokeWidth={2}
-          />,
+          <line key={`cv-${s.id}`}
+            x1={sPos.x + NODE_W / 2} y1={midY}
+            x2={sPos.x + NODE_W / 2} y2={sPos.y}
+            stroke="#95a5a6" strokeWidth={2} />
         );
       });
-    }
+    });
   });
 
   return (
