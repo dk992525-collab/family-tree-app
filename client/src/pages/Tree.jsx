@@ -205,7 +205,7 @@ export default function TreePage() {
     try {
       const [personsRes, relsRes] = await Promise.all([
         axios.get("/persons"),
-        axios.get("/relationships/all").catch(() => ({ data: { data: [] } })),
+        // axios.get("/relationships/all").catch(() => ({ data: { data: [] } })),
       ]);
 
       const allPersons = personsRes.data.data;
