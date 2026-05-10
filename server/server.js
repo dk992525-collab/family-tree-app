@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
+console.log('DB URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+
 const authRoutes = require('./routes/auth');
 const personRoutes = require('./routes/persons');
 const relationshipRoutes = require('./routes/relationships');
