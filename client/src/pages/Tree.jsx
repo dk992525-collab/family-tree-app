@@ -37,24 +37,22 @@ function buildGraph(persons, relationships) {
 function layout(persons, nodes) {
   const depth = {};
 
-  // Pass 1: Assign depth via parent relationships only
-  const roots = persons.filter(p => nodes[p.id].parentIds.length === 0 && nodes[p.id].spouseIds.every(sId => nodes[sId].parentIds.length === 0));
-  
   function assignDepth(id, d) {
     if (depth[id] !== undefined && depth[id] <= d) return;
     depth[id] = d;
-    nodes[id].childIds.forEach(cId => assignDepth(cId, d + 1));
+    nodes[id].childIds.forEach((cId) => assignDepth(cId, d + 1));
   }
-  
-  roots.forEach(p => assignDepth(p.id, 0));
 
-  // Pass 2: Assign spouse same depth as their partner
+  const roots = persons.filter((p) => nodes[p.id].parentIds.length === 0);
+  roots.forEach((p) => assignDepth(p.id, 0));
+
+  // Pass 2: Assign spouse same depth as their partner (iterative)
   let changed = true;
   while (changed) {
     changed = false;
-    persons.forEach(p => {
+    persons.forEach((p) => {
       if (depth[p.id] === undefined) return;
-      nodes[p.id].spouseIds.forEach(sId => {
+      nodes[p.id].spouseIds.forEach((sId) => {
         if (depth[sId] === undefined || depth[sId] !== depth[p.id]) {
           depth[sId] = depth[p.id];
           changed = true;
@@ -63,12 +61,12 @@ function layout(persons, nodes) {
     });
   }
 
-  // Pass 3: Anyone still unassigned gets 0
-  persons.forEach(p => { if (depth[p.id] === undefined) depth[p.id] = 0; });
+  persons.forEach((p) => {
+    if (depth[p.id] === undefined) depth[p.id] = 0;
+  });
 
-  // Group by generation
   const gens = {};
-  persons.forEach(p => {
+  persons.forEach((p) => {
     const d = depth[p.id];
     if (!gens[d]) gens[d] = [];
     if (!gens[d].includes(p.id)) gens[d].push(p.id);
@@ -77,18 +75,19 @@ function layout(persons, nodes) {
   const pos = {};
   const maxGen = Math.max(...Object.values(depth));
 
-  // Position generation by generation
   for (let g = 0; g <= maxGen; g++) {
     const ids = gens[g] || [];
     const placed = new Set();
     let x = 0;
 
-    ids.forEach(id => {
+    ids.forEach((id) => {
       if (placed.has(id)) return;
       placed.add(id);
       pos[id] = { x, y: g * (NODE_H + V_GAP) };
 
-      const spouse = nodes[id].spouseIds.find(sId => depth[sId] === g && !placed.has(sId));
+      const spouse = nodes[id].spouseIds.find(
+        (sId) => depth[sId] === g && !placed.has(sId),
+      );
       if (spouse) {
         placed.add(spouse);
         pos[spouse] = { x: x + NODE_W + H_GAP, y: g * (NODE_H + V_GAP) };
@@ -99,19 +98,20 @@ function layout(persons, nodes) {
     });
   }
 
-  // Center children under parents
   for (let g = 1; g <= maxGen; g++) {
     const ids = gens[g] || [];
     const assigned = new Set();
-
     const groups = [];
-    ids.forEach(id => {
+
+    ids.forEach((id) => {
       if (assigned.has(id)) return;
-      const siblings = ids.filter(otherId =>
-        nodes[id].parentIds.some(pId => nodes[otherId].parentIds.includes(pId))
+      const siblings = ids.filter((otherId) =>
+        nodes[id].parentIds.some((pId) =>
+          nodes[otherId].parentIds.includes(pId),
+        ),
       );
       if (siblings.length > 0) {
-        siblings.forEach(s => assigned.add(s));
+        siblings.forEach((s) => assigned.add(s));
         groups.push(siblings);
       } else {
         assigned.add(id);
@@ -119,20 +119,30 @@ function layout(persons, nodes) {
       }
     });
 
-    groups.forEach(group => {
-      const parentIds = [...new Set(group.flatMap(id => nodes[id].parentIds))];
-      const parentXs = parentIds.map(pId => pos[pId]).filter(Boolean).map(p => p.x + NODE_W / 2);
-      if (parentXs.length === 0) return;
+    groups.forEach((group) => {
+      const parentIds = [
+        ...new Set(group.flatMap((id) => nodes[id].parentIds)),
+      ];
+      const parentPositions = parentIds.map((pId) => pos[pId]).filter(Boolean);
+      if (parentPositions.length === 0) return;
 
-      const parentMidX = parentXs.reduce((a, b) => a + b, 0) / parentXs.length;
+      const parentMidX =
+        parentPositions.length > 1
+          ? (Math.min(...parentPositions.map((p) => p.x)) +
+              Math.max(...parentPositions.map((p) => p.x + NODE_W))) /
+            2
+          : parentPositions[0].x + NODE_W / 2;
+
       const totalW = group.length * NODE_W + (group.length - 1) * H_GAP;
       const startX = parentMidX - totalW / 2;
 
       group.forEach((id, i) => {
-        pos[id] = { x: startX + i * (NODE_W + H_GAP), y: depth[id] * (NODE_H + V_GAP) };
-        // Reposition spouse next to person
-        nodes[id].spouseIds.forEach(sId => {
-          if (depth[sId] === depth[id] && pos[sId]) {
+        pos[id] = {
+          x: startX + i * (NODE_W + H_GAP),
+          y: depth[id] * (NODE_H + V_GAP),
+        };
+        nodes[id].spouseIds.forEach((sId) => {
+          if (depth[sId] === depth[id]) {
             pos[sId] = { x: pos[id].x + NODE_W + H_GAP, y: pos[id].y };
           }
         });
@@ -193,39 +203,40 @@ function TreeSVG({ persons, nodes, pos, onPersonClick }) {
       const cPos = pos[cId];
       if (!cPos) return;
 
-      // All parents of this child
       const parentPositions = cNode.parentIds
         .map((pId) => pos[pId])
         .filter(Boolean);
       if (parentPositions.length === 0) return;
 
-      const midX =
-        parentPositions.reduce((sum, pp) => sum + pp.x + NODE_W / 2, 0) /
-        parentPositions.length;
+      // Center line between both parents
+      const parentMidX =
+        parentPositions.length > 1
+          ? (Math.min(...parentPositions.map((p) => p.x)) +
+              Math.max(...parentPositions.map((p) => p.x + NODE_W))) /
+            2
+          : parentPositions[0].x + NODE_W / 2;
+
       const topY = parentPositions[0].y + NODE_H;
       const midY = topY + V_GAP / 2;
 
-      // Siblings = all children sharing at least one parent with cId
       const siblings = persons.filter(
         (s) =>
           nodes[s.id].parentIds.some((pId) => cNode.parentIds.includes(pId)) &&
           pos[s.id],
       );
 
-      // Vertical from parents down to mid
       lines.push(
         <line
           key={`pv-${cId}`}
-          x1={midX}
+          x1={parentMidX}
           y1={topY}
-          x2={midX}
+          x2={parentMidX}
           y2={midY}
           stroke="#95a5a6"
           strokeWidth={2}
         />,
       );
 
-      // Horizontal across siblings
       if (siblings.length > 1) {
         const xs = siblings.map((s) => pos[s.id].x + NODE_W / 2);
         lines.push(
@@ -241,7 +252,6 @@ function TreeSVG({ persons, nodes, pos, onPersonClick }) {
         );
       }
 
-      // Verticals down to each sibling
       siblings.forEach((s) => {
         const sPos = pos[s.id];
         if (!sPos) return;

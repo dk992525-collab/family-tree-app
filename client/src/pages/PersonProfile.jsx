@@ -3,6 +3,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "../api/axios";
 import toast from "react-hot-toast";
 
+const getSavedType = (type) => {
+  if (["father", "mother"].includes(type)) return "parent";
+  if (["husband", "wife"].includes(type)) return "spouse";
+  if (["brother", "sister"].includes(type)) return "sibling";
+  return null;
+};
+
 export default function PersonProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -16,7 +23,7 @@ export default function PersonProfile() {
   const [photoFile, setPhotoFile] = useState(null);
   const [relForm, setRelForm] = useState({
     person2_id: "",
-    relationship_type: "parent",
+    relationship_type: "father",
   });
 
   const fetchAll = async () => {
@@ -36,6 +43,7 @@ export default function PersonProfile() {
       setLoading(false);
     }
   };
+
   useEffect(() => {
     fetchAll();
   }, [id]);
@@ -78,15 +86,26 @@ export default function PersonProfile() {
       toast.error("Please select a person");
       return;
     }
+
+    const isChild = ["son", "daughter"].includes(relForm.relationship_type);
+    const savedType = isChild
+      ? "parent"
+      : getSavedType(relForm.relationship_type);
+
+    if (!savedType) {
+      toast.error("Invalid relationship type");
+      return;
+    }
+
     try {
       await axios.post("/relationships", {
-        person1_id: parseInt(id),
-        person2_id: parseInt(relForm.person2_id),
-        relationship_type: relForm.relationship_type,
+        person1_id: isChild ? parseInt(relForm.person2_id) : parseInt(id),
+        person2_id: isChild ? parseInt(id) : parseInt(relForm.person2_id),
+        relationship_type: savedType,
       });
       toast.success("Relationship added");
       setShowRelModal(false);
-      setRelForm({ person2_id: "", relationship_type: "parent" });
+      setRelForm({ person2_id: "", relationship_type: "father" });
       fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.error || "Failed to add relationship");
@@ -104,8 +123,23 @@ export default function PersonProfile() {
     }
   };
 
+  const getRelationshipLabel = (rel) => {
+    const isP1 = rel.person1_id === parseInt(id);
+    const type = rel.relationship_type;
+    if (type === "spouse") return "💑 Spouse";
+    if (type === "sibling") return "👫 Sibling";
+    if (type === "parent") {
+      return isP1 ? "👶 Child" : "👨‍👩‍👧 Parent";
+    }
+    return type;
+  };
+
   if (loading) return <p style={styles.center}>Loading...</p>;
   if (!person) return <p style={styles.center}>Person not found</p>;
+
+  const baseUrl =
+    import.meta.env.VITE_API_URL?.replace("/api", "") ||
+    "http://localhost:5000";
 
   return (
     <div style={styles.container}>
@@ -114,12 +148,11 @@ export default function PersonProfile() {
       </button>
 
       <div style={styles.card}>
-        {/* Photo */}
         <div style={styles.photoSection}>
           <div style={styles.avatar}>
             {person.photo_url ? (
               <img
-                src={`http://localhost:5000${person.photo_url}`}
+                src={`${baseUrl}${person.photo_url}`}
                 style={styles.photo}
                 alt=""
               />
@@ -140,7 +173,6 @@ export default function PersonProfile() {
           )}
         </div>
 
-        {/* Info */}
         {editing ? (
           <div style={styles.editForm}>
             {[
@@ -248,7 +280,9 @@ export default function PersonProfile() {
             return (
               <div key={rel.id} style={styles.relCard}>
                 <div>
-                  <span style={styles.relType}>{rel.relationship_type}</span>
+                  <span style={styles.relType}>
+                    {getRelationshipLabel(rel)}
+                  </span>
                   <span
                     style={styles.relName}
                     onClick={() => navigate(`/person/${relatedId}`)}>
@@ -272,6 +306,32 @@ export default function PersonProfile() {
           <div style={styles.modal}>
             <h3 style={styles.modalTitle}>Add Relationship</h3>
             <div style={styles.field}>
+              <label style={styles.label}>Relationship Type</label>
+              <select
+                style={styles.input}
+                value={relForm.relationship_type}
+                onChange={(e) =>
+                  setRelForm({ ...relForm, relationship_type: e.target.value })
+                }>
+                <optgroup label="👨‍👩‍👧 Parents">
+                  <option value="father">Father</option>
+                  <option value="mother">Mother</option>
+                </optgroup>
+                <optgroup label="💑 Spouse">
+                  <option value="husband">Husband</option>
+                  <option value="wife">Wife</option>
+                </optgroup>
+                <optgroup label="👫 Siblings">
+                  <option value="brother">Brother</option>
+                  <option value="sister">Sister</option>
+                </optgroup>
+                <optgroup label="👶 Children">
+                  <option value="son">Son</option>
+                  <option value="daughter">Daughter</option>
+                </optgroup>
+              </select>
+            </div>
+            <div style={styles.field}>
               <label style={styles.label}>Person</label>
               <select
                 style={styles.input}
@@ -285,19 +345,6 @@ export default function PersonProfile() {
                     {p.first_name} {p.last_name}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Relationship Type</label>
-              <select
-                style={styles.input}
-                value={relForm.relationship_type}
-                onChange={(e) =>
-                  setRelForm({ ...relForm, relationship_type: e.target.value })
-                }>
-                <option value="parent">Parent</option>
-                <option value="spouse">Spouse</option>
-                <option value="sibling">Sibling</option>
               </select>
             </div>
             <div style={styles.btnRow}>
@@ -443,7 +490,6 @@ const styles = {
     borderRadius: "4px",
     fontSize: "0.8rem",
     marginRight: "0.8rem",
-    textTransform: "capitalize",
   },
   relName: {
     color: "#2c3e50",
