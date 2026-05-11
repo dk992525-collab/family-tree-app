@@ -44,8 +44,12 @@ function layout(persons, nodes) {
     if (depth[id] !== undefined) continue;
     depth[id] = d;
     // Assign same depth to spouses
+    nodes[id].childIds.forEach((cId) => {
+      if (depth[cId] === undefined) queue.push({ id: cId, d: d + 1 });
+    });
+    // Assign same depth to spouses ONLY if they don't have parents placing them elsewhere
     nodes[id].spouseIds.forEach((sId) => {
-      if (depth[sId] === undefined) {
+      if (depth[sId] === undefined && nodes[sId].parentIds.length === 0) {
         depth[sId] = d;
         queue.push({ id: sId, d });
       }
