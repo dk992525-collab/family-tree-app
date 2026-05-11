@@ -35,56 +35,60 @@ function buildGraph(persons, relationships) {
 }
 
 function layout(persons, nodes) {
-  // Step 1: Assign depth (generation) via BFS from roots
   const depth = {};
-  const roots = persons.filter((p) => nodes[p.id].parentIds.length === 0);
-  const queue = roots.map((p) => ({ id: p.id, d: 0 }));
-  while (queue.length) {
-    const { id, d } = queue.shift();
-    if (depth[id] !== undefined) continue;
+
+  // Pass 1: Assign depth via parent relationships only
+  const roots = persons.filter(p => nodes[p.id].parentIds.length === 0 && nodes[p.id].spouseIds.every(sId => nodes[sId].parentIds.length === 0));
+  
+  function assignDepth(id, d) {
+    if (depth[id] !== undefined && depth[id] <= d) return;
     depth[id] = d;
-    // Assign same depth to spouses
-    nodes[id].childIds.forEach((cId) => {
-      if (depth[cId] === undefined) queue.push({ id: cId, d: d + 1 });
-    });
-    // Assign same depth to spouses ONLY if they don't have parents placing them elsewhere
-    nodes[id].spouseIds.forEach((sId) => {
-      if (depth[sId] === undefined && nodes[sId].parentIds.length === 0) {
-        depth[sId] = d;
-        queue.push({ id: sId, d });
-      }
-    });
-    nodes[id].childIds.forEach((cId) => queue.push({ id: cId, d: d + 1 }));
+    nodes[id].childIds.forEach(cId => assignDepth(cId, d + 1));
   }
-  persons.forEach((p) => {
-    if (depth[p.id] === undefined) depth[p.id] = 0;
-  });
-  // Step 2: Group by generation
+  
+  roots.forEach(p => assignDepth(p.id, 0));
+
+  // Pass 2: Assign spouse same depth as their partner
+  let changed = true;
+  while (changed) {
+    changed = false;
+    persons.forEach(p => {
+      if (depth[p.id] === undefined) return;
+      nodes[p.id].spouseIds.forEach(sId => {
+        if (depth[sId] === undefined || depth[sId] !== depth[p.id]) {
+          depth[sId] = depth[p.id];
+          changed = true;
+        }
+      });
+    });
+  }
+
+  // Pass 3: Anyone still unassigned gets 0
+  persons.forEach(p => { if (depth[p.id] === undefined) depth[p.id] = 0; });
+
+  // Group by generation
   const gens = {};
-  persons.forEach((p) => {
+  persons.forEach(p => {
     const d = depth[p.id];
     if (!gens[d]) gens[d] = [];
     if (!gens[d].includes(p.id)) gens[d].push(p.id);
   });
 
-  // Step 3: Assign X positions generation by generation
   const pos = {};
   const maxGen = Math.max(...Object.values(depth));
 
+  // Position generation by generation
   for (let g = 0; g <= maxGen; g++) {
     const ids = gens[g] || [];
     const placed = new Set();
     let x = 0;
 
-    // Place couples together
-    ids.forEach((id) => {
+    ids.forEach(id => {
       if (placed.has(id)) return;
       placed.add(id);
       pos[id] = { x, y: g * (NODE_H + V_GAP) };
 
-      const spouse = nodes[id].spouseIds.find(
-        (sId) => depth[sId] === g && !placed.has(sId),
-      );
+      const spouse = nodes[id].spouseIds.find(sId => depth[sId] === g && !placed.has(sId));
       if (spouse) {
         placed.add(spouse);
         pos[spouse] = { x: x + NODE_W + H_GAP, y: g * (NODE_H + V_GAP) };
@@ -95,23 +99,19 @@ function layout(persons, nodes) {
     });
   }
 
-  // Step 4: Center children under parents
+  // Center children under parents
   for (let g = 1; g <= maxGen; g++) {
     const ids = gens[g] || [];
-
-    // Group children by shared parents
-    const groups = [];
     const assigned = new Set();
-    ids.forEach((id) => {
+
+    const groups = [];
+    ids.forEach(id => {
       if (assigned.has(id)) return;
-      const siblings = ids.filter((otherId) => {
-        const sharedParent = nodes[id].parentIds.some((pId) =>
-          nodes[otherId].parentIds.includes(pId),
-        );
-        return sharedParent;
-      });
+      const siblings = ids.filter(otherId =>
+        nodes[id].parentIds.some(pId => nodes[otherId].parentIds.includes(pId))
+      );
       if (siblings.length > 0) {
-        siblings.forEach((s) => assigned.add(s));
+        siblings.forEach(s => assigned.add(s));
         groups.push(siblings);
       } else {
         assigned.add(id);
@@ -119,14 +119,9 @@ function layout(persons, nodes) {
       }
     });
 
-    groups.forEach((group) => {
-      // Find parent positions
-      const parentIds = [
-        ...new Set(group.flatMap((id) => nodes[id].parentIds)),
-      ];
-      const parentXs = parentIds
-        .map((pId) => pos[pId]?.x + NODE_W / 2)
-        .filter(Boolean);
+    groups.forEach(group => {
+      const parentIds = [...new Set(group.flatMap(id => nodes[id].parentIds))];
+      const parentXs = parentIds.map(pId => pos[pId]).filter(Boolean).map(p => p.x + NODE_W / 2);
       if (parentXs.length === 0) return;
 
       const parentMidX = parentXs.reduce((a, b) => a + b, 0) / parentXs.length;
@@ -134,10 +129,13 @@ function layout(persons, nodes) {
       const startX = parentMidX - totalW / 2;
 
       group.forEach((id, i) => {
-        pos[id] = {
-          x: startX + i * (NODE_W + H_GAP),
-          y: depth[id] * (NODE_H + V_GAP),
-        };
+        pos[id] = { x: startX + i * (NODE_W + H_GAP), y: depth[id] * (NODE_H + V_GAP) };
+        // Reposition spouse next to person
+        nodes[id].spouseIds.forEach(sId => {
+          if (depth[sId] === depth[id] && pos[sId]) {
+            pos[sId] = { x: pos[id].x + NODE_W + H_GAP, y: pos[id].y };
+          }
+        });
       });
     });
   }
