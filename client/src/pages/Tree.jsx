@@ -95,7 +95,40 @@ function layout(persons, nodes) {
     const placed = new Set();
     let x = 0;
 
+    // Sort: persons with parents first, then their spouses immediately after
+    const sorted = [];
+    const addedToSorted = new Set();
+
+    // First add persons who have parents (they need centering)
     ids.forEach(id => {
+      if (nodes[id].parentIds.length > 0 && !addedToSorted.has(id)) {
+        addedToSorted.add(id);
+        sorted.push(id);
+        // Add their spouse immediately after
+        nodes[id].spouseIds.forEach(sId => {
+          if (!addedToSorted.has(sId) && ids.includes(sId)) {
+            addedToSorted.add(sId);
+            sorted.push(sId);
+          }
+        });
+      }
+    });
+
+    // Then add remaining (roots with no parents in this gen)
+    ids.forEach(id => {
+      if (!addedToSorted.has(id)) {
+        addedToSorted.add(id);
+        sorted.push(id);
+        nodes[id].spouseIds.forEach(sId => {
+          if (!addedToSorted.has(sId) && ids.includes(sId)) {
+            addedToSorted.add(sId);
+            sorted.push(sId);
+          }
+        });
+      }
+    });
+
+    sorted.forEach(id => {
       if (placed.has(id)) return;
       placed.add(id);
       pos[id] = { x, y: g * (NODE_H + V_GAP) };
