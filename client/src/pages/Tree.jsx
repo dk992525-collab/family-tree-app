@@ -110,9 +110,12 @@ function layout(persons, nodes) {
       nodes[id].spouseIds.forEach((sId) => {
         if (!ids.includes(sId)) return;
         // Check if they share at least one child
-        const sharedChild = nodes[id].childIds.some((cId) =>
-          nodes[sId].childIds.includes(cId),
-        );
+        const idChildren = new Set(nodes[id].childIds);
+        const sIdChildren = new Set(nodes[sId].childIds);
+        const sharedChild =
+          [...idChildren].some((cId) => sIdChildren.has(cId)) ||
+          [...idChildren].some((cId) => nodes[cId]?.parentIds.includes(sId)) ||
+          [...sIdChildren].some((cId) => nodes[cId]?.parentIds.includes(id));
         if (sharedChild) {
           const key = [id, sId].sort().join("-");
           sharedChildPairs.add(key);
