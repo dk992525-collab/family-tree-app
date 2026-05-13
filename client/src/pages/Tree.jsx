@@ -128,11 +128,12 @@ function layout(persons, nodes) {
       placed.add(id);
       const unit = [id];
 
-      // Pair all spouses at the same generation, regardless of shared children
+      // Only pair as couple if they share children
       const spouse = nodes[id].spouseIds.find((sId) => {
         if (depth[sId] !== g || placed.has(sId) || !ids.includes(sId))
           return false;
-        return true;
+        const key = [id, sId].sort().join("-");
+        return sharedChildPairs.has(key);
       });
 
       if (spouse) {
@@ -206,19 +207,31 @@ function layout(persons, nodes) {
 
       // Only reposition actual children (not spouses-in-group)
       const siblingsOnly = group.filter((id) => nodes[id].parentIds.length > 0);
-      const totalW =
-        siblingsOnly.length * NODE_W + (siblingsOnly.length - 1) * H_GAP;
-      const startX = parentMidX - totalW / 2;
 
-      siblingsOnly.forEach((id, i) => {
-        const newX = startX + i * (NODE_W + H_GAP);
-        pos[id] = { x: newX, y: depth[id] * (NODE_H + V_GAP) };
-        // Reposition spouse immediately to right
-        nodes[id].spouseIds.forEach((sId) => {
-          if (depth[sId] === depth[id]) {
-            pos[sId] = { x: newX + NODE_W + H_GAP, y: pos[id].y };
-          }
-        });
+      // First pass: assign positions to siblings, leaving gaps for spouses
+      const slotAssignments = []; // { id, hasSpouse }
+      siblingsOnly.forEach((id) => {
+        const spouseInSameGen = nodes[id].spouseIds.find(
+          (sId) => depth[sId] === depth[id],
+        );
+        slotAssignments.push({ id, spouseId: spouseInSameGen || null });
+      });
+
+      // Calculate total width needed including spouse slots
+      const totalSlotW = slotAssignments.reduce((acc, slot) => {
+        return acc + NODE_W + (slot.spouseId ? NODE_W + H_GAP : 0) + H_GAP;
+      }, -H_GAP);
+      const slotStartX = parentMidX - totalSlotW / 2;
+
+      let curX = slotStartX;
+      slotAssignments.forEach((slot) => {
+        const y = depth[slot.id] * (NODE_H + V_GAP);
+        pos[slot.id] = { x: curX, y };
+        curX += NODE_W + H_GAP;
+        if (slot.spouseId) {
+          pos[slot.spouseId] = { x: curX, y };
+          curX += NODE_W + H_GAP;
+        }
       });
     });
   }
