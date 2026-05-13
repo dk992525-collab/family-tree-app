@@ -128,12 +128,11 @@ function layout(persons, nodes) {
       placed.add(id);
       const unit = [id];
 
-      // Only pair as couple if they share children
+      // Pair all spouses at the same generation, regardless of shared children
       const spouse = nodes[id].spouseIds.find((sId) => {
         if (depth[sId] !== g || placed.has(sId) || !ids.includes(sId))
           return false;
-        const key = [id, sId].sort().join("-");
-        return sharedChildPairs.has(key);
+        return true;
       });
 
       if (spouse) {
