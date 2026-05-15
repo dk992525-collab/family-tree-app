@@ -1,29 +1,34 @@
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+require("dotenv").config();
 
-console.log('DB URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+console.log("DB URL:", process.env.DATABASE_URL ? "SET" : "NOT SET");
 
-const authRoutes = require('./routes/auth');
-const personRoutes = require('./routes/persons');
-const relationshipRoutes = require('./routes/relationships');
+const authRoutes = require("./routes/auth");
+const personRoutes = require("./routes/persons");
+const relationshipRoutes = require("./routes/relationships");
 
 const app = express();
 
-app.use(cors({
-    origin: ['https://tree-play.netlify.app', 'http://localhost:5173'],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: [
+      "https://family-tree-six-beryl.vercel.app",
+      "http://localhost:5173",
+    ],
+    credentials: true,
+  }),
+);
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-app.use('/api/auth', authRoutes);
-app.use('/api/persons', personRoutes);
-app.use('/api/relationships', relationshipRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/persons", personRoutes);
+app.use("/api/relationships", relationshipRoutes);
 
-app.get('/', (req, res) => {
-  res.json({ message: 'Family Tree API running' });
+app.get("/", (req, res) => {
+  res.json({ message: "Family Tree API running" });
 });
 
 const PORT = process.env.PORT || 5000;

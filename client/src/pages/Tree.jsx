@@ -805,7 +805,7 @@ const s = {
     marginBottom: "0.3rem",
     color: "#444",
     fontSize: "0.88rem",
-    fontWeight: "500",
+    fontWeight: "500",  
   },
   input: {
     width: "100%",
