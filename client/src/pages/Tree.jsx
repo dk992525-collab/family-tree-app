@@ -188,21 +188,26 @@ function layout(persons, nodes) {
       const parentPositions = parentIds.map((pId) => pos[pId]).filter(Boolean);
       if (parentPositions.length === 0) return;
 
-      // Mid X between all parents including spouses
-      const allParentXs = parentIds.flatMap((pId) => {
-        const pp = pos[pId];
-        if (!pp) return [];
-        const spouseXs = nodes[pId].spouseIds
-          .map((sId) => pos[sId])
-          .filter(Boolean)
-          .map((sp) => sp.x + NODE_W / 2);
-        return [pp.x + NODE_W / 2, ...spouseXs];
-      });
+      // Mid X: use biological parents only; if single parent, include their spouse
+      const biologicalParentXs = parentIds
+        .map((pId) => pos[pId])
+        .filter(Boolean)
+        .map((pp) => pp.x + NODE_W / 2);
 
-      const parentMidX =
-        allParentXs.length > 0
-          ? allParentXs.reduce((a, b) => a + b, 0) / allParentXs.length
+      const parentMidX = (() => {
+        if (biologicalParentXs.length === 1) {
+          const pId = parentIds[0];
+          const spouseXs = nodes[pId].spouseIds
+            .map((sId) => pos[sId])
+            .filter(Boolean)
+            .map((sp) => sp.x + NODE_W / 2);
+          const allXs = [...biologicalParentXs, ...spouseXs];
+          return allXs.reduce((a, b) => a + b, 0) / allXs.length;
+        }
+        return biologicalParentXs.length > 0
+          ? biologicalParentXs.reduce((a, b) => a + b, 0) / biologicalParentXs.length
           : parentPositions[0].x + NODE_W / 2;
+      })();
 
       // Only reposition actual children (not spouses-in-group)
       const siblingsOnly = group.filter((id) => nodes[id].parentIds.length > 0);
