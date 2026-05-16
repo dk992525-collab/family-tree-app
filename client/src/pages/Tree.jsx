@@ -35,57 +35,42 @@ function buildGraph(persons, relationships) {
 }
 
 function layout(persons, nodes) {
-  // Step 1: Assign depth via iterative parent-based BFS
-  const depth = {};
-  const maxIterations = persons.length + 1;
+  if (persons.length === 0) return {};
 
-  for (let iter = 0; iter < maxIterations; iter++) {
+  // ── Step 1: assign depth ──────────────────────────────────────────────────
+  const depth = {};
+  for (let iter = 0; iter < persons.length + 1; iter++) {
     let changed = false;
     persons.forEach((p) => {
-      const parentDepths = nodes[p.id].parentIds
-        .map((pId) => depth[pId])
+      const pd = nodes[p.id].parentIds
+        .map((x) => depth[x])
         .filter((d) => d !== undefined);
-
-      if (parentDepths.length > 0) {
-        const newDepth = Math.max(...parentDepths) + 1;
-        if (depth[p.id] !== newDepth) {
-          depth[p.id] = newDepth;
-          changed = true;
-        }
-      } else if (depth[p.id] === undefined) {
-        depth[p.id] = 0;
-        changed = true;
-      }
+      const nd = pd.length > 0 ? Math.max(...pd) + 1 : 0;
+      if (depth[p.id] !== nd) { depth[p.id] = nd; changed = true; }
     });
     if (!changed) break;
   }
+  persons.forEach((p) => { if (depth[p.id] === undefined) depth[p.id] = 0; });
 
-  // Step 2: Spouses share same depth as partner
-  let changed = true;
-  while (changed) {
-    changed = false;
+  // Spouses share the same depth
+  let sc = true;
+  while (sc) {
+    sc = false;
     persons.forEach((p) => {
       nodes[p.id].spouseIds.forEach((sId) => {
-        const myDepth = depth[p.id] ?? 0;
-        const spouseDepth = depth[sId] ?? 0;
-        const maxD = Math.max(myDepth, spouseDepth);
-        if (depth[p.id] !== maxD) {
-          depth[p.id] = maxD;
-          changed = true;
-        }
-        if (depth[sId] !== maxD) {
-          depth[sId] = maxD;
-          changed = true;
-        }
+        if (depth[sId] === undefined) return;
+        const mx = Math.max(depth[p.id], depth[sId]);
+        if (depth[p.id] !== mx) { depth[p.id] = mx; sc = true; }
+        if (depth[sId] !== mx) { depth[sId] = mx; sc = true; }
       });
     });
   }
 
-  persons.forEach((p) => {
-    if (depth[p.id] === undefined) depth[p.id] = 0;
-  });
+  // ── Step 2: build family units per generation ─────────────────────────────
+  // A "unit" = { members: [personId, spouseId?], childUnits: [] }
+  // We build a forest of units and compute widths bottom-up.
 
-  // Step 3: Group by generation
+  const maxGen = Math.max(...Object.values(depth));
   const gens = {};
   persons.forEach((p) => {
     const d = depth[p.id];
@@ -93,152 +78,133 @@ function layout(persons, nodes) {
     if (!gens[d].includes(p.id)) gens[d].push(p.id);
   });
 
-  const pos = {};
-  const maxGen = Math.max(...Object.values(depth));
+  // For each person, figure out which unit they belong to
+  const unitOf = {}; // personId -> unit object
+  const allUnits = [];
 
-  // Step 4: For each generation, build ordered "units"
-  // A unit is either [person] or [person, spouse]
-  // Siblings are separate units placed consecutively
+  // Build units generation by generation (top-down so parents exist first)
   for (let g = 0; g <= maxGen; g++) {
     const ids = gens[g] || [];
     const placed = new Set();
-    const units = [];
-
-    // First pass: pair people who share children (real couples)
-    const sharedChildPairs = new Set();
-    ids.forEach((id) => {
-      nodes[id].spouseIds.forEach((sId) => {
-        if (!ids.includes(sId)) return;
-        // Check if they share at least one child
-        const idChildren = new Set(nodes[id].childIds);
-        const sIdChildren = new Set(nodes[sId].childIds);
-        const sharedChild =
-          [...idChildren].some((cId) => sIdChildren.has(cId)) ||
-          [...idChildren].some((cId) => nodes[cId]?.parentIds.includes(sId)) ||
-          [...sIdChildren].some((cId) => nodes[cId]?.parentIds.includes(id));
-        if (sharedChild) {
-          const key = [id, sId].sort().join("-");
-          sharedChildPairs.add(key);
-        }
-      });
-    });
 
     ids.forEach((id) => {
       if (placed.has(id)) return;
       placed.add(id);
-      const unit = [id];
+      const members = [id];
 
-      // Pair all spouses at same generation, regardless of shared children
-      const spouse = nodes[id].spouseIds.find((sId) => {
-        if (depth[sId] !== g || placed.has(sId) || !ids.includes(sId))
-          return false;
-        return true;
-      });
-
+      // Pair with spouse at same gen
+      const spouse = nodes[id].spouseIds.find(
+        (sId) => depth[sId] === g && !placed.has(sId) && ids.includes(sId)
+      );
       if (spouse) {
         placed.add(spouse);
-        unit.push(spouse);
+        members.push(spouse);
       }
-      units.push(unit);
+
+      const unit = { members, childUnits: [], width: 0 };
+      members.forEach((m) => { unitOf[m] = unit; });
+      allUnits.push(unit);
     });
 
-    // Second pass: add remaining unpaired spouses as solo units
+    // Remaining (spouses already placed as part of another unit)
     ids.forEach((id) => {
-      if (placed.has(id)) return;
-      placed.add(id);
-      units.push([id]);
-    });
-
-    // Place units left to right
-    let x = 0;
-    units.forEach((unit) => {
-      if (unit.length === 2) {
-        pos[unit[0]] = { x, y: g * (NODE_H + V_GAP) };
-        pos[unit[1]] = { x: x + NODE_W + H_GAP, y: g * (NODE_H + V_GAP) };
-        x += NODE_W * 2 + H_GAP + H_GAP;
-      } else {
-        pos[unit[0]] = { x, y: g * (NODE_H + V_GAP) };
-        x += NODE_W + H_GAP;
+      if (!placed.has(id)) {
+        placed.add(id);
+        const unit = { members: [id], childUnits: [], width: 0 };
+        unitOf[id] = unit;
+        allUnits.push(unit);
       }
     });
   }
 
-  // Step 5: Center children under their parents
-  for (let g = 1; g <= maxGen; g++) {
-    const ids = gens[g] || [];
-    const assigned = new Set();
-    const groups = [];
+  // Link child units to parent units
+  allUnits.forEach((unit) => {
+    // Collect all children of all members in this unit
+    const childIds = [...new Set(unit.members.flatMap((m) => nodes[m].childIds))];
+    const childUnitsSeen = new Set();
+    childIds.forEach((cId) => {
+      const cu = unitOf[cId];
+      if (cu && !childUnitsSeen.has(cu)) {
+        childUnitsSeen.add(cu);
+        unit.childUnits.push(cu);
+      }
+    });
+  });
 
-    ids.forEach((id) => {
-      if (assigned.has(id)) return;
-      const siblings = ids.filter((otherId) =>
-        nodes[id].parentIds.some((pId) =>
-          nodes[otherId].parentIds.includes(pId),
-        ),
-      );
-      const group = siblings.length > 0 ? siblings : [id];
-      group.forEach((s) => assigned.add(s));
-      groups.push(group);
+  // ── Step 3: compute widths bottom-up ─────────────────────────────────────
+  // Unit width = max(own node width, sum of child unit widths + gaps)
+  // Own node width = members.length * NODE_W + (members.length-1) * H_GAP
+
+  function unitOwnWidth(unit) {
+    return unit.members.length * NODE_W + (unit.members.length - 1) * H_GAP;
+  }
+
+  function computeWidth(unit) {
+    if (unit.childUnits.length === 0) {
+      unit.width = unitOwnWidth(unit);
+      return unit.width;
+    }
+    unit.childUnits.forEach(computeWidth);
+    const childrenTotalW =
+      unit.childUnits.reduce((s, cu) => s + cu.width, 0) +
+      (unit.childUnits.length - 1) * H_GAP;
+    unit.width = Math.max(unitOwnWidth(unit), childrenTotalW);
+    return unit.width;
+  }
+
+  // Find root units (units whose members have no parents)
+  const rootUnits = allUnits.filter((u) =>
+    u.members.every((m) => nodes[m].parentIds.length === 0)
+  );
+
+  // Also catch units not reachable as child of any root (disconnected)
+  const reachable = new Set();
+  function markReachable(u) {
+    if (reachable.has(u)) return;
+    reachable.add(u);
+    u.childUnits.forEach(markReachable);
+  }
+  rootUnits.forEach(markReachable);
+  allUnits.forEach((u) => { if (!reachable.has(u)) rootUnits.push(u); });
+
+  rootUnits.forEach(computeWidth);
+
+  // ── Step 4: assign X positions top-down ──────────────────────────────────
+  const pos = {};
+
+  function placeUnit(unit, centerX) {
+    const g = depth[unit.members[0]];
+    const y = g * (NODE_H + V_GAP);
+
+    // Place members centered at centerX
+    const ownW = unitOwnWidth(unit);
+    let mx = centerX - ownW / 2;
+    unit.members.forEach((m) => {
+      pos[m] = { x: mx, y };
+      mx += NODE_W + H_GAP;
     });
 
-    groups.forEach((group) => {
-      const parentIds = [
-        ...new Set(group.flatMap((id) => nodes[id].parentIds)),
-      ];
-      const parentPositions = parentIds.map((pId) => pos[pId]).filter(Boolean);
-      if (parentPositions.length === 0) return;
-
-      // Mid X: use biological parents only; if single parent, include their spouse
-      const biologicalParentXs = parentIds
-        .map((pId) => pos[pId])
-        .filter(Boolean)
-        .map((pp) => pp.x + NODE_W / 2);
-
-      const parentMidX = (() => {
-        if (biologicalParentXs.length === 1) {
-          const pId = parentIds[0];
-          const spouseXs = nodes[pId].spouseIds
-            .map((sId) => pos[sId])
-            .filter(Boolean)
-            .map((sp) => sp.x + NODE_W / 2);
-          const allXs = [...biologicalParentXs, ...spouseXs];
-          return allXs.reduce((a, b) => a + b, 0) / allXs.length;
-        }
-        return biologicalParentXs.length > 0
-          ? biologicalParentXs.reduce((a, b) => a + b, 0) / biologicalParentXs.length
-          : parentPositions[0].x + NODE_W / 2;
-      })();
-
-      // Only reposition actual children (not spouses-in-group)
-      const siblingsOnly = group.filter((id) => nodes[id].parentIds.length > 0);
-
-      // First pass: assign positions to siblings, leaving gaps for spouses
-      const slotAssignments = []; // { id, hasSpouse }
-      siblingsOnly.forEach((id) => {
-        const spouseInSameGen = nodes[id].spouseIds.find(
-          (sId) => depth[sId] === depth[id],
-        );
-        slotAssignments.push({ id, spouseId: spouseInSameGen || null });
-      });
-
-      // Calculate total width needed including spouse slots
-      const totalSlotW = slotAssignments.reduce((acc, slot) => {
-        return acc + NODE_W + (slot.spouseId ? NODE_W + H_GAP : 0) + H_GAP;
-      }, -H_GAP);
-      const slotStartX = parentMidX - totalSlotW / 2;
-
-      let curX = slotStartX;
-      slotAssignments.forEach((slot) => {
-        const y = depth[slot.id] * (NODE_H + V_GAP);
-        pos[slot.id] = { x: curX, y };
-        curX += NODE_W + H_GAP;
-        if (slot.spouseId) {
-          pos[slot.spouseId] = { x: curX, y };
-          curX += NODE_W + H_GAP;
-        }
-      });
+    // Place child units
+    if (unit.childUnits.length === 0) return;
+    const childrenTotalW =
+      unit.childUnits.reduce((s, cu) => s + cu.width, 0) +
+      (unit.childUnits.length - 1) * H_GAP;
+    let cx = centerX - childrenTotalW / 2;
+    unit.childUnits.forEach((cu) => {
+      placeUnit(cu, cx + cu.width / 2);
+      cx += cu.width + H_GAP;
     });
   }
+
+  // Place root units side by side
+  const totalRootW =
+    rootUnits.reduce((s, u) => s + u.width, 0) +
+    (rootUnits.length - 1) * H_GAP;
+  let rx = -totalRootW / 2 + rootUnits[0].width / 2;
+  rootUnits.forEach((ru) => {
+    placeUnit(ru, rx);
+    rx += ru.width + H_GAP;
+  });
 
   return pos;
 }
